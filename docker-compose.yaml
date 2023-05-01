@@ -26,4 +26,4 @@ services:
 volumes:
 
   passage-products:
-    driver: local
+    external: true
