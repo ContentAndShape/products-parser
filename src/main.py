@@ -8,6 +8,7 @@ from json_parser import JsonParser
 
 
 JSON_PATH = "../test.json"
+THREADS_NUM = 4
 PRODUCTS_COLLECTION = "products"
 
 
@@ -24,21 +25,18 @@ def main() -> None:
     logger.debug(products_collection)
     queue = Queue()
 
-    parser = JsonParser(json_file=JSON_PATH, max_threads=4, queue=queue)    
+    parser = JsonParser(json_file=JSON_PATH, max_threads=THREADS_NUM, queue=queue)    
     parser.run()
 
     got_products = 0
 
     while True:
         try:
-            try:
-                prod = queue.get(timeout=10)
-                products_collection.insert_one(prod)
-                got_products += 1
-            except:
-                logger.info(f"Successfully got products: {got_products}")
-                break
-        except KeyboardInterrupt:
+            prod = queue.get(timeout=5)
+            products_collection.insert_one(prod)
+            got_products += 1
+        except:
+            logger.info(f"Successfully got products: {got_products}")
             break
 
 
