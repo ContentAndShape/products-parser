@@ -32,9 +32,9 @@ class Colors(Enum):
     green = "green"
     yellow = "yellow"
     orange = "orange"
-    pink = "pink",
+    pink = "pink"
     blue = "blue"
-    violet = "violet",
+    violet = "violet"
     beige = "beige"
     brown = "brown"
     multicolor = "multicolor"
