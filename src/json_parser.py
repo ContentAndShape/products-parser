@@ -118,13 +118,13 @@ class JsonParser:
         """
         Проверяет товар на наличие дубликатов, 
         если таковые имеются - суммирует остатки товара и дубликатов в одном объекте. 
-        Возвращает объект товара или ничего в случае, если товар уже был обработан ранее.
+        Возвращает суммированный объект или ничего в случае если товар уже был обработан ранее. 
         """
         # Отфильтрованный id, не содержащий окончания -1, -2, -r, т.д.
         prod_id = self.filter_id(product[JSONFieldNames.id.value])
 
         duplicates = self.find_duplicates(
-            filt_target_id=prod_id,
+            target_id=prod_id,
             products=self.loaded_prods[start_idx:],
         )
         found_leftovers = [dupl[JSONFieldNames.leftovers.value] for dupl in duplicates]
@@ -132,6 +132,7 @@ class JsonParser:
             found_leftovers, 
             price=product[JSONFieldNames.price.value]
         )
+        product[JSONFieldNames.id.value] = prod_id
         product[JSONFieldNames.leftovers.value] = total_leftovers
         return product
 
@@ -146,24 +147,30 @@ class JsonParser:
     
     def find_duplicates(
             self, 
-            filt_target_id: str, 
+            target_id: str, 
             products: List[Dict],
+            sequential: bool = False,
         ) -> List[Dict]:
         """
-        Поочередно фильтрует id товаров из products и возвращает товары, чьи id совпали с filtered_id
+        Поочередно фильтрует id товаров из products и возвращает товары, чьи id совпали с target_id. 
+        При sequential=True прекращает поиск после окончания серии одинаковых id.
         """
         res = []
-        filt_prev_id = self.filter_id(products[0][JSONFieldNames.id.value])
-
-        for product in products:
-            cur_id = product[JSONFieldNames.id.value]
-            filt_cur_id = self.filter_id(cur_id)
-            if filt_cur_id != filt_prev_id:
-                # Закончилась цепочка дубликатов
+        print(target_id)
+        # Поиск индекса первого товара с target_id
+        for idx, product in enumerate(products):
+            cur_id = self.filter_id(product[JSONFieldNames.id.value])
+            if cur_id == target_id:
+                start = idx
                 break
-            filt_prev_id = filt_cur_id
 
-            # if filt_cur_id == filt_target_id:
+        for product in products[start:]:
+            cur_id = self.filter_id(product[JSONFieldNames.id.value])
+            if cur_id != target_id:
+                if sequential:
+                    break
+                else:
+                    continue
             res.append(product)
 
         return res
