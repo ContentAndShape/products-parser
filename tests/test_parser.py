@@ -6,6 +6,7 @@ from src.enums import Sex, JSONFieldNames as Field
 
 
 def test_filter_id() -> None:
+    """Удаление окончаний, свойственных товарам-дубликатам"""
     parser = JsonParser(..., ...)
 
     assert parser.filter_id("ABC-1") == "ABC"
@@ -125,6 +126,63 @@ def test_get_brand_object() -> None:
     assert br["slug"] == slugify(f"{br['name']}+{color_code}+{color}+{sku}")
 
 
+def test_find_duplicates() -> None:
+    parser = JsonParser(..., ...)
+
+    # Поиск последовательно идущих дубликатов с целевым id
+    # Возвращаются только дубликаты, идущие непрерывно
+    seq = [
+        {
+            Field.id.value: "ABC-R",
+        },
+        {
+            Field.id.value: "QWE",
+            Field.title.value: "duplicate_1",
+        },
+        {
+            Field.id.value: "QWE-2",
+            Field.title.value: "duplicate_2",
+        },
+        {
+            Field.id.value: "TYUI-OIITJ",
+        },
+        {
+            Field.id.value: "QWE-3",
+            Field.title.value: "duplicate_3",
+        }
+    ]
+    dups = parser.find_duplicates(target_id="QWE", products=seq, sequential=True)
+    assert seq[1] in dups
+    assert seq[2] in dups
+
+    # Поиск всех дубликатов с целевым id
+    # Возвращаются все дубликаты целевого id из массива
+    seq = [
+        {
+            Field.id.value: "ABC-R",
+        },
+        {
+            Field.id.value: "QWE",
+            Field.title.value: "duplicate_1",
+        },
+        {
+            Field.id.value: "QWE-R",
+            Field.title.value: "duplicate_2",
+        },
+        {
+            Field.id.value: "TYUI-OIITJ",
+        },
+        {
+            Field.id.value: "QWE-3",
+            Field.title.value: "duplicate_3",
+        }
+    ]
+    dups = parser.find_duplicates(target_id="QWE", products=seq, sequential=False)
+    assert seq[1] in dups
+    assert seq[2] in dups
+    assert seq[4] in dups
+
+
 def test_merge_leftovers_into_product() -> None:
     parser = JsonParser(..., ...)
 
@@ -191,3 +249,200 @@ def test_merge_leftovers_into_product() -> None:
         match l_over[Field.size.value]:
             case "S":
                 assert quantity == 1
+
+
+def test_product_consolidation() -> None:
+    """Тест слияния дубликатов и их остатков в один объект"""
+    parser = JsonParser(..., ...)
+    
+    p = [
+        {
+	    	"title": "Ёлочная игрушка",
+	    	"sku": "L24337-1",
+	    	"price": 3840,
+	    	"leftovers": [
+	    		{
+	    			"size": "U",
+	    			"count": 1,
+	    			"price": 3840
+	    		}
+	    	]
+	    },
+	    {
+	    	"title": "Ёлочная игрушка",
+	    	"sku": "L24337-2",
+	    	"price": 3840,
+	    	"leftovers": [
+	    		{
+	    			"size": "U",
+	    			"count": 1,
+	    			"price": 3840
+	    		}
+	    	]
+	    },
+        {
+	    	"title": "ремень",
+	    	"sku": "E3-N68-11-25-01",
+	    	"leftovers": [
+	    		{
+	    			"size": "L",
+	    			"count": 1,
+	    			"price": 8650
+	    		},
+	    		{
+	    			"size": "M",
+	    			"count": 0,
+	    			"price": 8650
+	    		},
+	    		{
+	    			"size": "S",
+	    			"count": 1,
+	    			"price": 8650
+	    		}
+	    	]
+	    },
+        {
+	    	"title": "Ёлочная игрушка ",
+	    	"sku": "03449",
+	    	"price": 550,
+	    	"leftovers": [
+	    		{
+	    			"size": "U",
+	    			"count": 0,
+	    			"price": 550
+	    		}
+	    	]
+	    },
+	    {
+	    	"title": "Ёлочная игрушка",
+	    	"sku": "L24337-3",
+	    	"price": 3840,
+	    	"leftovers": [
+	    		{
+	    			"size": "U",
+	    			"count": 0,
+	    			"price": 3840
+	    		}
+	    	]
+	    },
+	    {
+	    	"title": "джинсы",
+	    	"sku": "LDM550005",
+	    	"price": 17840,
+	    	"leftovers": [
+	    		{
+	    			"size": "33",
+	    			"count": 0,
+	    			"price": 7440
+	    		},
+	    		{
+	    			"size": "34",
+	    			"count": 0,
+	    			"price": 7440
+	    		},
+	    		{
+	    			"size": "36",
+	    			"count": 1,
+	    			"price": 7440
+	    		}
+	    	]
+	    },
+	    {
+	    	"title": "джинсы",
+	    	"sku": "LDM550005-1",
+	    	"price": 19980,
+	    	"leftovers": [
+	    		{
+	    			"size": "32",
+	    			"count": 0,
+	    			"price": 10410
+	    		},
+	    		{
+	    			"size": "33",
+	    			"count": 0,
+	    			"price": 10410
+	    		},
+	    		{
+	    			"size": "34",
+	    			"count": 1,
+	    			"price": 10410
+	    		},
+	    		{
+	    			"size": "36",
+	    			"count": 0,
+	    			"price": 10410
+	    		}
+	    	]
+	    },
+	    {
+	    	"title": "джинсы",
+	    	"sku": "FAF8892",
+	    	"price": 59260,
+	    	"leftovers": [
+	    		{
+	    			"size": "36",
+	    			"count": 0,
+	    			"price": 34570
+	    		},
+                {
+                    "size": "37",
+                    "count": 0,
+                    "price": 34570,
+                },
+                {
+                    "size": "39",
+                    "count": 2,
+                    "price": 34570,
+                },
+	    	]
+	    },
+	    {
+	    	"title": "джинсы",
+	    	"sku": "FAF8892-2",
+	    	"price": 49380,
+	    	"leftovers": [
+	    		{
+	    			"size": "33",
+	    			"count": 1,
+	    			"price": 49380
+	    		},
+	    		{
+	    			"size": "34",
+	    			"count": 0,
+	    			"price": 49380
+	    		},
+	    		{
+	    			"size": "38",
+	    			"count": 1,
+	    			"price": 49380
+	    		}
+	    	]
+	    }
+    ]
+    parser.loaded_prods = p
+
+    # Ёлочная игрушка L24337
+    target = p[0]
+    prod = parser.consolidate_product(product=target, start_idx=0)
+    prod_leftovers = prod[Field.leftovers.value]
+    assert prod_leftovers[0][Field.quantity.value] == 2
+
+    # Джинсы FAF8892
+    target = p[-2]
+    prod = parser.consolidate_product(product=target, start_idx=-2)
+    prod_leftovers = prod[Field.leftovers.value]
+    for leftover in prod_leftovers:
+        quantity = leftover[Field.quantity.value]
+        match leftover[Field.size.value]:
+            case "33":
+                assert quantity == 1
+            case "34":
+                assert quantity == 0
+            case "36":
+                assert quantity == 0
+            case "37":
+                assert quantity == 0
+            case "38":
+                assert quantity == 1
+            case "39":
+                assert quantity == 2
