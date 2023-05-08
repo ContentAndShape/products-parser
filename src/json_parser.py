@@ -36,9 +36,9 @@ class JsonParser:
         self.loaded_prods: List[Dict]
 
         # id Уже найденных дубликатов
-        self.seen_common_ids: List[str] = []
+        self.seen_ids: List[str] = []
 
-        logger.configure(handlers=[{"level": "INFO", "sink": sys.stdout}])
+        # logger.configure(handlers=[{"level": "INFO", "sink": sys.stdout}])
 
     def run(self) -> None:
         start = time.perf_counter()
@@ -48,42 +48,32 @@ class JsonParser:
 
         logger.debug(f"Total json products quantity: {len(self.loaded_prods)}")
 
-        for product in self.loaded_prods:
+        for product_idx, product in enumerate(self.loaded_prods):
             # logger.debug(f"Processing product: {product}")
-            parsed_prod = self.parse_product(product)
-            if parsed_prod is None:
+            raw_id = product[JSONFieldNames.id.value]
+            # Это id после фильтрации. У товара и его дубликатов после фильтрации он будет одинаков
+            filt_id = self.filter_id(raw_id)
+            # Если уже суммировались остатки товара и его дубликатов
+            if filt_id in self.seen_ids:
                 continue
 
-            prod_id = parsed_prod[JSONFieldNames.id.value]
-            filtered_prod_id = self.filter_id(prod_id)
-            # Если id товара попадает под вид дубликата 
-            # и id товара до этого не встречался - ищем его дубликаты
-            if (
-                self.id_match_duplicate(prod_id) and
-                filtered_prod_id not in self.seen_common_ids
-            ):
-                duplicates = self.find_duplicates(
-                    filtered_id=filtered_prod_id,
-                    products=self.loaded_prods,
-                    skip_ids=[prod_id], # Пропустить id текущего товара
-                )
-                logger.debug(f"Found duplicates for {pformat(parsed_prod)}: {len(duplicates)} - {duplicates}")
-                self.seen_common_ids.append(filtered_prod_id)
+            parsed_prod = self.parse_product(product)
+            if parsed_prod is None:
+                # Не валидный формат объекта товара
+                continue
+            consolidated_prod = self.consolidate_product(parsed_prod, start_idx=product_idx)
+            self.seen_ids.append(consolidated_prod[JSONFieldNames.id.value])
+            # logger.info(f"consolidated: {pformat(consolidated_prod)}")
 
-                found_leftovers = [dupl[JSONFieldNames.leftovers.value] for dupl in duplicates]
-                found_leftovers.append(parsed_prod[JSONFieldNames.leftovers.value])
-                total_leftovers = self._merge_leftovers(
-                    found_leftovers, 
-                    price=parsed_prod[JSONFieldNames.price.value]
-                )
-                parsed_prod[JSONFieldNames.leftovers.value] = total_leftovers
-                parsed_prod[JSONFieldNames.id.value] = filtered_prod_id
-
-            self._queue.put(parsed_prod)
+            self._queue.put(consolidated_prod)
         
         logger.info(f"Total parse time: {time.perf_counter() - start:.2f}")
 
     def parse_product(self, product: Dict) -> Dict | None:
+        """
+        Формирует новый объект товара, реализуя логику присвоения цен, 
+        формирования категории, 
+        """
         filtered_id = self.filter_id(product[JSONFieldNames.id.value])
         category_obj = self._get_category_object(product)
         sex_name = self._get_prod_sex(product)
@@ -101,7 +91,7 @@ class JsonParser:
         try:
             parsed_prod = {
                 "title": product[JSONFieldNames.title.value],
-                "sku": product[JSONFieldNames.id.value],
+                "sku": filtered_id,
                 "color": color,
                 "color_code": color_code,
                 "brand": self._get_brand_obj(
@@ -124,6 +114,27 @@ class JsonParser:
             logger.warning(f"Malformed product object {product}")
             return None
         
+    def consolidate_product(self, product: Dict, start_idx: int) -> Dict | None:
+        """
+        Проверяет товар на наличие дубликатов, 
+        если таковые имеются - суммирует остатки товара и дубликатов в одном объекте. 
+        Возвращает объект товара или ничего в случае, если товар уже был обработан ранее.
+        """
+        # Отфильтрованный id, не содержащий окончания -1, -2, -r, т.д.
+        prod_id = self.filter_id(product[JSONFieldNames.id.value])
+
+        duplicates = self.find_duplicates(
+            filt_target_id=prod_id,
+            products=self.loaded_prods[start_idx:],
+        )
+        found_leftovers = [dupl[JSONFieldNames.leftovers.value] for dupl in duplicates]
+        total_leftovers = self._merge_leftovers(
+            found_leftovers, 
+            price=product[JSONFieldNames.price.value]
+        )
+        product[JSONFieldNames.leftovers.value] = total_leftovers
+        return product
+
     def filter_id(self, id: str) -> str:
         """
         Удаляет окончания -1, -2, -r и т.д. если они есть
@@ -135,20 +146,25 @@ class JsonParser:
     
     def find_duplicates(
             self, 
-            filtered_id: str, 
+            filt_target_id: str, 
             products: List[Dict],
-            skip_ids: List[str] = [],
         ) -> List[Dict]:
         """
         Поочередно фильтрует id товаров из products и возвращает товары, чьи id совпали с filtered_id
         """
         res = []
+        filt_prev_id = self.filter_id(products[0][JSONFieldNames.id.value])
+
         for product in products:
-            product_id = product[JSONFieldNames.id.value]
-            if product_id in skip_ids:
-                continue
-            if self.filter_id(product_id) == filtered_id:
-                res.append(product)
+            cur_id = product[JSONFieldNames.id.value]
+            filt_cur_id = self.filter_id(cur_id)
+            if filt_cur_id != filt_prev_id:
+                # Закончилась цепочка дубликатов
+                break
+            filt_prev_id = filt_cur_id
+
+            # if filt_cur_id == filt_target_id:
+            res.append(product)
 
         return res
 
