@@ -126,6 +126,16 @@ def test_get_brand_object() -> None:
     assert br["slug"] == slugify(f"{br['name']}+{color_code}+{color}+{sku}")
 
 
+def test_unique_id() -> None:
+    parser = JsonParser(..., ...)
+
+    raw_id = "L012412-1"
+    filtered_id = parser.filter_id(raw_id)
+    raw_color = "BLACK/черный"
+
+    assert parser._get_unique_id(filtered_id, raw_color) == filtered_id + raw_color
+
+
 def test_find_duplicates() -> None:
     parser = JsonParser(..., ...)
 
@@ -134,56 +144,127 @@ def test_find_duplicates() -> None:
     seq = [
         {
             Field.id.value: "ABC-R",
+            Field.color.value: "",
         },
         {
-            Field.id.value: "QWE",
+            Field.id.value: "QWE", # <- должен вернуться
             Field.title.value: "duplicate_1",
+            Field.color.value: "",
         },
         {
-            Field.id.value: "QWE-2",
+            Field.id.value: "QWE-2", # <- должен вернуться
             Field.title.value: "duplicate_2",
+            Field.color.value: "",
         },
         {
             Field.id.value: "TYUI-OIITJ",
+            Field.color.value: "",
         },
         {
-            Field.id.value: "QWE-3",
+            Field.id.value: "QWE-3", # <- не должен возвращаться, т.к. sequential=True
             Field.title.value: "duplicate_3",
+            Field.color.value: "",
         }
     ]
-    dups = parser.find_duplicates(target_id="QWE", products=seq, sequential=True)
+    dups = parser.find_duplicates(target_id="QWE", products=seq, target_color="", sequential=True)
     assert seq[1] in dups
     assert seq[2] in dups
+
+    # Товары с одинаковым id, идущие непрерывно, но у них разные цвета
+    seq = [
+        {
+            Field.id.value: "ABC-R",
+            Field.color.value: "",
+        },
+        {
+            Field.id.value: "QWE", # <- Должен вернуться, т.к. совпадает целевой id и цвет
+            Field.title.value: "duplicate_1",
+            Field.color.value: "color_one",
+        },
+        {
+            Field.id.value: "QWE-2", # <- Не должен возвращаться, т.к. совпадает целевой id, но цвет - нет
+            Field.title.value: "",
+            Field.color.value: "color_two",
+        },
+        {
+            Field.id.value: "TYUI-OIITJ",
+            Field.color.value: "",
+        },
+        {
+            Field.id.value: "QWE-3", # <- Не должен возвращаться, т.к. sequential=True
+            Field.title.value: "duplicate_3",
+            Field.color.value: "color_one",
+        }
+    ]
+    dups = parser.find_duplicates(target_id="QWE", products=seq, target_color="color_one", sequential=True)
+    assert seq[1] in dups
+    assert seq[2] not in dups
+    assert seq[4] not in dups
 
     # Поиск всех дубликатов с целевым id
     # Возвращаются все дубликаты целевого id из массива
     seq = [
         {
             Field.id.value: "ABC-R",
+            Field.color.value: "",
         },
         {
-            Field.id.value: "QWE",
+            Field.id.value: "QWE", # <- Должен вернуться
             Field.title.value: "duplicate_1",
+            Field.color.value: "",
         },
         {
-            Field.id.value: "QWE-R",
+            Field.id.value: "QWE-R", # <- Должен вернуться
             Field.title.value: "duplicate_2",
+            Field.color.value: "",
         },
         {
             Field.id.value: "TYUI-OIITJ",
+            Field.color.value: "",
         },
         {
-            Field.id.value: "QWE-3",
+            Field.id.value: "QWE-3", # <- Должен вернуться, т.к. sequential=False
             Field.title.value: "duplicate_3",
+            Field.color.value: "",
         }
     ]
-    dups = parser.find_duplicates(target_id="QWE", products=seq, sequential=False)
+    dups = parser.find_duplicates(target_id="QWE", products=seq, target_color="", sequential=False)
     assert seq[1] in dups
     assert seq[2] in dups
     assert seq[4] in dups
 
+    # Товары с одинаковыми id и разными цветами не должны считаться дубликатами
+    seq = [
+        {
+            Field.id.value: "ABC-R",
+            Field.color.value: "",
+        },
+        {
+            Field.id.value: "QWE", # <- Должен вернуться, т.к. id и цвет совпадает с целевым
+            Field.title.value: "duplicate_1",
+            Field.color.value: "unique",
+        },
+        {
+            Field.id.value: "QWE-2", # <- Не должен возвращаться, т.к. id совпадает, но цвет не совпадает с целевым
+            Field.title.value: "duplicate_2",
+            Field.color.value: "",
+        },
+        {
+            Field.id.value: "TYUI-OIITJ",
+            Field.color.value: "",
+        },
+        {
+            Field.id.value: "QWE-3", # <- Должен вернуться, т.к. sequential=True, id и цвет совпадает с целевым
+            Field.title.value: "duplicate_3",
+            Field.color.value: "unique",
+        }
+    ]
+    dups = parser.find_duplicates(target_id="QWE", products=seq, target_color="unique", sequential=False)
+    assert seq[1] in dups
+    assert seq[4] in dups
 
-def test_merge_leftovers_into_product() -> None:
+
+def test_merge_leftovers() -> None:
     parser = JsonParser(..., ...)
 
     l_1 = [
@@ -259,6 +340,8 @@ def test_product_consolidation() -> None:
         {
 	    	"title": "Ёлочная игрушка",
 	    	"sku": "L24337-1",
+            "color": "",
+            "color_code": "",
 	    	"price": 3840,
 	    	"leftovers": [
 	    		{
@@ -271,6 +354,8 @@ def test_product_consolidation() -> None:
 	    {
 	    	"title": "Ёлочная игрушка",
 	    	"sku": "L24337-2",
+            "color": "",
+            "color_code": "",
 	    	"price": 3840,
 	    	"leftovers": [
 	    		{
@@ -283,6 +368,8 @@ def test_product_consolidation() -> None:
         {
 	    	"title": "ремень",
 	    	"sku": "E3-N68-11-25-01",
+            "color": "",
+            "color_code": "",
 	    	"leftovers": [
 	    		{
 	    			"size": "L",
@@ -304,6 +391,8 @@ def test_product_consolidation() -> None:
         {
 	    	"title": "Ёлочная игрушка ",
 	    	"sku": "03449",
+            "color": "",
+            "color_code": "",
 	    	"price": 550,
 	    	"leftovers": [
 	    		{
@@ -316,6 +405,8 @@ def test_product_consolidation() -> None:
 	    {
 	    	"title": "Ёлочная игрушка",
 	    	"sku": "L24337-3",
+            "color": "",
+            "color_code": "",
 	    	"price": 3840,
 	    	"leftovers": [
 	    		{
@@ -328,6 +419,8 @@ def test_product_consolidation() -> None:
 	    {
 	    	"title": "джинсы",
 	    	"sku": "LDM550005",
+            "color": "",
+            "color_code": "",
 	    	"price": 17840,
 	    	"leftovers": [
 	    		{
@@ -350,6 +443,8 @@ def test_product_consolidation() -> None:
 	    {
 	    	"title": "джинсы",
 	    	"sku": "LDM550005-1",
+            "color": "",
+            "color_code": "",
 	    	"price": 19980,
 	    	"leftovers": [
 	    		{
@@ -377,6 +472,8 @@ def test_product_consolidation() -> None:
 	    {
 	    	"title": "джинсы",
 	    	"sku": "FAF8892",
+            "color": "",
+            "color_code": "",
 	    	"price": 59260,
 	    	"leftovers": [
 	    		{
@@ -399,6 +496,8 @@ def test_product_consolidation() -> None:
 	    {
 	    	"title": "джинсы",
 	    	"sku": "FAF8892-2",
+            "color": "",
+            "color_code": "",
 	    	"price": 49380,
 	    	"leftovers": [
 	    		{
@@ -423,13 +522,14 @@ def test_product_consolidation() -> None:
 
     # Ёлочная игрушка L24337
     target = p[0]
-    prod = parser.consolidate_product(product=target, start_idx=0)
+    prod = parser.consolidate_product(product=target, raw_color="", start_idx=0)
     prod_leftovers = prod[Field.leftovers.value]
+    print(prod_leftovers)
     assert prod_leftovers[0][Field.quantity.value] == 2
 
     # Джинсы FAF8892
     target = p[-2]
-    prod = parser.consolidate_product(product=target, start_idx=-2)
+    prod = parser.consolidate_product(product=target, raw_color="", start_idx=-2)
     prod_leftovers = prod[Field.leftovers.value]
     for leftover in prod_leftovers:
         quantity = leftover[Field.quantity.value]
