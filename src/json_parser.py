@@ -23,6 +23,7 @@ NON_COLORED_CATEGORIES = (
     "Текстиль для дома",
     "Текстиль для дома #Маркировка",
 )
+SEQUENTIAL = True
 
 
 class JsonParser:
@@ -35,10 +36,10 @@ class JsonParser:
         self._queue = queue
         self.loaded_prods: List[Dict]
 
-        # id Уже найденных дубликатов
-        self.seen_ids: List[str] = []
+        # Хранит уникальные идентификаторы уже обработанных товаров: id+color
+        self.seen_products: List[str] = []
 
-        # logger.configure(handlers=[{"level": "INFO", "sink": sys.stdout}])
+        logger.configure(handlers=[{"level": "INFO", "sink": sys.stdout}])
 
     def run(self) -> None:
         start = time.perf_counter()
@@ -49,20 +50,27 @@ class JsonParser:
         logger.debug(f"Total json products quantity: {len(self.loaded_prods)}")
 
         for product_idx, product in enumerate(self.loaded_prods):
-            # logger.debug(f"Processing product: {product}")
-            raw_id = product[JSONFieldNames.id.value]
-            # Это id после фильтрации. У товара и его дубликатов после фильтрации он будет одинаков
-            filt_id = self.filter_id(raw_id)
+            logger.debug(f"Processing product: \n{pformat(product)}")
+            filtered_id = self.filter_id(product[JSONFieldNames.id.value])
+            raw_color = product[JSONFieldNames.color.value]
+            unique_id = self._get_unique_id(filtered_id, raw_color)
             # Если уже суммировались остатки товара и его дубликатов
-            if filt_id in self.seen_ids:
+            if unique_id in self.seen_products:
                 continue
 
             parsed_prod = self.parse_product(product)
             if parsed_prod is None:
                 # Не валидный формат объекта товара
                 continue
-            consolidated_prod = self.consolidate_product(parsed_prod, start_idx=product_idx)
-            self.seen_ids.append(consolidated_prod[JSONFieldNames.id.value])
+
+            # Здесь передается стартовый индекс, т.к. известно, 
+            # что среди предыдущих товаров нет дубликатов текущего
+            consolidated_prod = self.consolidate_product(
+                parsed_prod, 
+                raw_color=product[JSONFieldNames.color.value], 
+                start_idx=product_idx,
+            )
+            self.seen_products.append(unique_id)
             # logger.info(f"consolidated: {pformat(consolidated_prod)}")
 
             self._queue.put(consolidated_prod)
@@ -114,7 +122,7 @@ class JsonParser:
             logger.warning(f"Malformed product object {product}")
             return None
         
-    def consolidate_product(self, product: Dict, start_idx: int) -> Dict | None:
+    def consolidate_product(self, product: Dict, raw_color: str, start_idx: int) -> Dict | None:
         """
         Проверяет товар на наличие дубликатов, 
         если таковые имеются - суммирует остатки товара и дубликатов в одном объекте. 
@@ -125,7 +133,9 @@ class JsonParser:
 
         duplicates = self.find_duplicates(
             target_id=prod_id,
+            target_color=raw_color,
             products=self.loaded_prods[start_idx:],
+            sequential=SEQUENTIAL,
         )
         found_leftovers = [dupl[JSONFieldNames.leftovers.value] for dupl in duplicates]
         total_leftovers = self._merge_leftovers(
@@ -147,7 +157,8 @@ class JsonParser:
     
     def find_duplicates(
             self, 
-            target_id: str, 
+            target_id: str,
+            target_color: str, 
             products: List[Dict],
             sequential: bool = False,
         ) -> List[Dict]:
@@ -156,24 +167,41 @@ class JsonParser:
         При sequential=True прекращает поиск после окончания серии одинаковых id.
         """
         res = []
-        print(target_id)
+        start = None
         # Поиск индекса первого товара с target_id
         for idx, product in enumerate(products):
             cur_id = self.filter_id(product[JSONFieldNames.id.value])
-            if cur_id == target_id:
+            cur_color = product[JSONFieldNames.color.value]
+            if cur_id == target_id and cur_color == target_color:
                 start = idx
                 break
 
+        # Если в переданном списке нет целевого товара
+        if start is None:
+            return []
+
         for product in products[start:]:
             cur_id = self.filter_id(product[JSONFieldNames.id.value])
-            if cur_id != target_id:
+            cur_color = product[JSONFieldNames.color.value]
+            if self._get_unique_id(cur_id, cur_color) is self.seen_products:
+                continue
+
+            if cur_id == target_id and cur_color == target_color:
+                res.append(product)
+            else:
                 if sequential:
                     break
                 else:
                     continue
-            res.append(product)
 
         return res
+    
+    def _get_unique_id(self, filtered_id: str, raw_color: str) -> str:
+        """
+        Возваращает строку filtered_id+raw_color, т.к. 
+        идентифицировать уникальные товары можно по этому сочетанию
+        """
+        return f"{filtered_id}{raw_color}"
 
     def _get_category_object(self, product: Dict) -> Dict:
         category_name = product[JSONFieldNames.root_category.value]
