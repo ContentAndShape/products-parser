@@ -132,11 +132,13 @@ class JsonParser:
         prod_id = self.filter_id(product[JSONFieldNames.id.value])
 
         duplicates = self.find_duplicates(
-            target_id=prod_id,
+            filtered_id=prod_id,
             target_color=raw_color,
             products=self.loaded_prods[start_idx:],
             sequential=SEQUENTIAL,
         )
+        # if prod_id == "BB7337-AW576" and raw_color == "80999/черный":
+        #     print("Dups: ", duplicates)
         found_leftovers = [dupl[JSONFieldNames.leftovers.value] for dupl in duplicates]
         total_leftovers = self._merge_leftovers(
             found_leftovers, 
@@ -157,7 +159,7 @@ class JsonParser:
     
     def find_duplicates(
             self, 
-            target_id: str,
+            filtered_id: str,
             target_color: str, 
             products: List[Dict],
             sequential: bool = False,
@@ -168,11 +170,11 @@ class JsonParser:
         """
         res = []
         start = None
-        # Поиск индекса первого товара с target_id
+        # Поиск индекса первого товара с filtered_id
         for idx, product in enumerate(products):
             cur_id = self.filter_id(product[JSONFieldNames.id.value])
             cur_color = product[JSONFieldNames.color.value]
-            if cur_id == target_id and cur_color == target_color:
+            if cur_id == filtered_id and cur_color == target_color:
                 start = idx
                 break
 
@@ -183,16 +185,28 @@ class JsonParser:
         for product in products[start:]:
             cur_id = self.filter_id(product[JSONFieldNames.id.value])
             cur_color = product[JSONFieldNames.color.value]
-            if self._get_unique_id(cur_id, cur_color) is self.seen_products:
-                continue
+            # if self._get_unique_id(cur_id, cur_color) in self.seen_products:
+            #     continue
 
-            if cur_id == target_id and cur_color == target_color:
-                res.append(product)
-            else:
-                if sequential:
+            if sequential:
+                if cur_id != filtered_id:
                     break
-                else:
-                    continue
+                if cur_color == target_color:
+                    res.append(product)
+            else:
+                if cur_id == filtered_id and cur_color == target_color:
+                    res.append(product)
+
+            # if cur_id == filtered_id and cur_color == target_color:
+            #     # if filtered_id == "BB7337-AW576" and target_color == "80999/черный":
+            #     #     print(product[JSONFieldNames.price.value])
+            #     #     print("dolce")
+            #     res.append(product)
+            # else:
+            #     if sequential:
+            #         break
+            #     else:
+            #         continue
 
         return res
     
@@ -298,5 +312,8 @@ class JsonParser:
             return (discount_price, discount_price)
         elif discount_price <= 0:
             return (price, 0)
-        elif discount_price >= price:
+        elif discount_price <= price:
             return (discount_price, 0)
+        elif discount_price > price:
+            return (price, 0)
+        
